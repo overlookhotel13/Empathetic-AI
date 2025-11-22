@@ -1,0 +1,8 @@
+fastapi
+uvicorn[standard]
+transformers==4.57.1
+safetensors
+huggingface_hub
+openai
+requests
+python-multipart
