@@ -1,43 +1,46 @@
-# api.py
-
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+
 from emotion_classifier import EmotionClassifier
 from prompt_builder import build_prompt
 from response_generator import generate_response
 
 app = FastAPI()
 
-# Load classifier at startup
-classifier = EmotionClassifier()
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-class MessageRequest(BaseModel):
+# Load model once
+classifier = None
+try:
+    classifier = EmotionClassifier("OVERLOOKHOTEL13/emotion-detector-final")
+except Exception as e:
+    print("Error loading model:", e)
+
+class Request(BaseModel):
     text: str
 
+@app.get("/health")
+def health():
+    return {"status": "ok" if classifier else "initializing"}
 
-class MessageResponse(BaseModel):
-    text: str
-    emotions: list
-    prompt: str
-    llm_response: str
+@app.post("/predict")
+def predict(req: Request):
+    if classifier is None:
+        raise HTTPException(status_code=503, detail="Model not loaded yet")
 
+    result = classifier.predict(req.text)[0]  
+    prompt = build_prompt(req.text, result["labels"])
+    ai_reply = generate_response(prompt)
 
-@app.post("/predict", response_model=MessageResponse)
-def predict(request: MessageRequest):
-
-    # 1) Emotion detection
-    result = classifier.predict(request.text)
-    emotions = result[0]["labels"]
-
-    # 2) Build prompt for the LLM
-    prompt = build_prompt(request.text, emotions)
-
-    # 3) Generate an empathetic LLM response
-    llm_answer = generate_response(prompt)
-
-    return MessageResponse(
-        text=request.text,
-        emotions=emotions,
-        prompt=prompt,
-        llm_response=llm_answer
-    )
+    return {
+        "text": req.text,
+        "emotions": result["labels"],
+        "prompt": prompt,
+        "llm_response": ai_reply
+    }
